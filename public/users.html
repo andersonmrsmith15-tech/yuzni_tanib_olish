@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Foydalanuvchilar</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/common.js"></script>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div><h1>Foydalanuvchilar</h1><div class="muted" id="sub"></div></div>
+    <div class="row"><input type="text" id="q" placeholder="Qidirish..." style="width:220px"><a class="btn primary" href="/register">+ Yangi foydalanuvchi</a></div>
+  </div>
+  <div class="users-grid" id="grid"></div>
+</main>
+
+<div class="drawer-bg hidden" id="bg"></div>
+<aside class="drawer hidden" id="drawer"></aside>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let users = [], META = {};
+
+async function load() {
+  META = await attrMeta();
+  users = await api("/api/users");
+  $("sub").textContent = `Jami ${users.length} ta foydalanuvchi`;
+  render();
+  const h = location.hash.slice(1); if (h && users.find((u) => u.id === h)) open(h);
+}
+function render() {
+  const q = $("q").value.toLowerCase();
+  const list = users.filter((u) => [u.name, u.phone, u.department].join(" ").toLowerCase().includes(q));
+  $("grid").innerHTML = list.length ? list.map((u) => `
+    <div class="card ucard" data-id="${u.id}">${avatar(u)}
+      <div style="min-width:0"><div class="uname">${esc(u.name)}</div>
+        <div class="small muted">${esc(u.department || "—")}</div>
+        <div class="small muted">${u.face_samples} yuz · ${u.body_samples} tana · ${ago(u.last_seen)}</div>
+        ${u.last_attrs?.length ? `<div class="chips">${keyChips(u.last_attrs, META)}</div>` : ""}</div></div>`).join("")
+    : `<div class="muted">Foydalanuvchi topilmadi. <a href="/register">Ro'yxatdan o'tkazish →</a></div>`;
+  document.querySelectorAll(".ucard").forEach((c) => c.onclick = () => open(c.dataset.id));
+}
+$("q").oninput = render;
+
+const SRC = { register: "ro'yxat", upload: "yuklangan", auto: "avto" };
+const close = () => { $("bg").classList.add("hidden"); $("drawer").classList.add("hidden"); history.replaceState(null, "", "/users"); };
+$("bg").onclick = close;
+
+async function open(id) {
+  const u = await api(`/api/users/${id}`);
+  history.replaceState(null, "", "#" + id);
+  const sample = (s) => `<div class="thumb">${s.image ? `<img src="${s.image}" loading="lazy">` : ""}
+      <span class="tag">${s.kind === "face" ? "yuz" : "tana"} · ${SRC[s.source]}</span>
+      <button class="x" data-sid="${s.id}" title="O'chirish">✕</button></div>`;
+  const faces = u.samples.filter((s) => s.kind === "face"), bodies = u.samples.filter((s) => s.kind === "body");
+  $("drawer").innerHTML = `
+    <div class="row" style="justify-content:space-between"><div class="row">${avatar(u)}<div><h1>${esc(u.name)}</h1>
+      <div class="small muted">Ro'yxatdan o'tgan: ${fmtDate(u.created)} · Oxirgi ko'rilgan: ${ago(u.last_seen)} · ${u.seen_count} marta</div></div></div>
+      <button id="cls">✕</button></div>
+
+    <div class="card" style="margin-top:16px"><h2>Odatiy ko'rinishi</h2>${attrSection(u)}</div>
+
+    <div class="card" style="margin-top:16px"><h2>Ma'lumotlar</h2>
+      <label class="field"><span>Ism familiya</span><input type="text" id="e_name" value="${esc(u.name)}"></label>
+      <label class="field"><span>Telefon</span><input type="tel" id="e_phone" value="${esc(u.phone)}"></label>
+      <label class="field"><span>Bo'lim / lavozim</span><input type="text" id="e_department" value="${esc(u.department)}"></label>
+      <label class="field"><span>Izoh</span><textarea id="e_note">${esc(u.note)}</textarea></label>
+      <div class="row"><button class="primary" id="save">Saqlash</button><span id="saved" class="small muted"></span></div></div>
+
+    <div class="card" style="margin-top:16px"><h2>Yangi rasmlar bilan o'rgatish</h2>
+      <div class="small muted" style="margin-bottom:8px">Turli xil rasmlar (boshqa burchak, yorug'lik, ko'zoynak, soqol, kiyim, butun bo'y) qo'shsangiz, tanib olish aniqligi oshadi.</div>
+      <input type="file" id="more" accept="image/*" multiple><div id="upmsg"></div></div>
+
+    <div class="card" style="margin-top:16px"><h2>Yuz namunalari (${faces.length})</h2><div class="thumbs">${faces.map(sample).join("") || '<span class="muted">yo\'q</span>'}</div></div>
+    <div class="card" style="margin-top:16px"><h2>Tana namunalari (${bodies.length})</h2><div class="thumbs">${bodies.map(sample).join("") || '<span class="muted">yo\'q</span>'}</div></div>
+
+    <div class="card" style="margin-top:16px"><h2>Oxirgi hodisalar</h2><div class="feed">${u.events.map((e) =>
+      `<div class="ev"><time>${fmtTime(e.ts)}</time><span>${esc(e.text || (e.type === "recognized" ? `Tanildi (${e.via === "body" ? "tana" : "yuz"}, ${(e.score * 100).toFixed(0)}%)` : e.type))} ${e.attrs?.length ? keyChips(e.attrs, META) : ""}<span class="small muted"> · ${new Date(e.ts * 1000).toLocaleDateString("uz-UZ")}</span></span></div>`).join("") || '<span class="muted">yo\'q</span>'}</div></div>
+
+    <div style="margin-top:16px"><button class="danger" id="del">Foydalanuvchini o'chirish</button></div>`;
+  $("bg").classList.remove("hidden"); $("drawer").classList.remove("hidden");
+  $("cls").onclick = close;
+  $("save").onclick = async () => {
+    const body = {}; for (const k of ["name", "phone", "department", "note"]) body[k] = $("e_" + k).value;
+    const r = await api(`/api/users/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    $("saved").textContent = r.ok ? "Saqlandi ✓" : r.error; if (r.ok) { await reloadList(); }
+  };
+  $("more").onchange = async (e) => {
+    const files = [...e.target.files].slice(0, 40);
+    let r;
+    try {
+      const ml = await import("/js/ml.js");
+      const prog = (n, f, label) => { $("upmsg").innerHTML = `<div class="alert warn">${esc(label)} yuklanmoqda: ${Math.round(f * 100)}%</div>`; };
+      await ml.load([...ml.GROUPS.face, ...ml.GROUPS.body], prog);
+      const items = [];
+      for (let i = 0; i < files.length; i++) {
+        $("upmsg").innerHTML = `<div class="alert warn">Tahlil qilinmoqda: ${i + 1}/${files.length}...</div>`;
+        try { items.push((await ml.analyzeSubject(await ml.frameFromFile(files[i], 1600))).item); }
+        catch { items.push({ warnings: ["rasm o'qilmadi"] }); }
+      }
+      r = await api(`/api/users/${id}/images`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items, source: "upload" }) });
+    } catch (err) { $("upmsg").innerHTML = `<div class="alert bad">${esc(err.message)}</div>`; return; }
+    if (!r.ok) { $("upmsg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`; return; }
+    const s = r.stats;
+    await reloadList(); await open(id);
+    $("upmsg").innerHTML = `<div class="alert ok">${s.face_added} yuz, ${s.body_added} tana namunasi qo'shildi.${s.warnings.length ? "<br><span class='small'>" + s.warnings.map(esc).join("<br>") + "</span>" : ""}</div>`;
+  };
+  $("drawer").querySelectorAll(".x").forEach((b) => b.onclick = async () => {
+    if (!confirm("Bu namunani o'chirasizmi?")) return;
+    await api(`/api/users/${id}/samples/${b.dataset.sid}`, { method: "DELETE" }); await reloadList(); open(id);
+  });
+  $("del").onclick = async () => {
+    if (!confirm(`${u.name} va uning barcha namunalari o'chirilsinmi? Bu amalni qaytarib bo'lmaydi.`)) return;
+    await api(`/api/users/${id}`, { method: "DELETE" }); close(); load();
+  };
+}
+function attrSection(u) {
+  const st = u.attr_stats;
+  const last = u.last_attrs?.length ? `<div class="small muted">Oxirgi marta:</div><div class="chips" style="margin-bottom:10px">${keyChips(u.last_attrs, META)}</div>` : "";
+  if (!st.total) return last + `<div class="muted small">Kamerada hali tanilmagan. Tanilganda ko'zoynak, kepka, soqol va boshqalar shu yerda yig'iladi.</div>`;
+  const rows = Object.entries(st.counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+    const pct = Math.round((n / st.total) * 100), m = META[k] || { icon: "", label: k };
+    return `<div style="margin-bottom:8px"><div class="row" style="justify-content:space-between"><span>${m.icon} ${esc(m.label)}</span>
+      <span class="small muted">${pct}% (${n}/${st.total})</span></div><div class="bar"><div style="width:${pct}%"></div></div></div>`;
+  }).join("");
+  return last + (rows || `<div class="muted small">${st.total} ta ko'rinishda qo'shimcha narsa aniqlanmadi</div>`) +
+    `<div class="small muted">${st.total} ta tanib olish asosida</div>`;
+}
+async function reloadList() { users = await api("/api/users"); render(); }
+load();
+</script>
+</body>
+</html>

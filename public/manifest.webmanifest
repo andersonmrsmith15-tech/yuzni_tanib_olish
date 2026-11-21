@@ -1,0 +1,21 @@
+{
+  "name": "Yuz va tana tanib olish",
+  "short_name": "Tanib olish",
+  "description": "Kamera orqali yuz va tanani tanib olish, ro'yxatdan o'tkazish va Dashboard",
+  "lang": "uz",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1115",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Kamera", "url": "/" },
+    { "name": "Dashboard", "url": "/dashboard" }
+  ]
+}

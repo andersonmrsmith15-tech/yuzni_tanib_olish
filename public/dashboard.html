@@ -1,10 +1,13 @@
 <!doctype html>
 <html lang="uz">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dashboard</title>
-<link rel="stylesheet" href="/static/style.css">
-<script src="/static/common.js"></script>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/common.js"></script>
 <style>
   :root { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; }
   @media (prefers-color-scheme: dark) { :root { --s1: #3987e5; --s2: #d95926; --s3: #199e70; } }
@@ -89,6 +92,8 @@ async function refresh() {
   let s;
   try { s = await api("/api/stats"); } catch (e) { $("upd").textContent = "Server bilan aloqa yo'q"; return; }
   const t = s.totals;
+  const isAdmin = (await getMe())?.role === "admin";
+  const ulink = (id, inner, style = "") => isAdmin ? `<a href="/users#${id}" style="${style}">${inner}</a>` : `<span style="${style}">${inner}</span>`;
   const kpi = (label, value, sub = "") => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
   $("kpis").innerHTML = [
     kpi("Foydalanuvchilar", t.users, `oxirgi 7 kunda +${t.registered_week}`),
@@ -119,8 +124,6 @@ async function refresh() {
     <div class="legend"><span><i style="background:var(--s1)"></i>Yuz: ${vf} (${Math.round(vf / vt * 100)}%)</span><span><i style="background:var(--s3)"></i>Tana: ${vb} (${Math.round(vb / vt * 100)}%)</span></div>`
     : `<div class="muted">Hali ma'lumot yo'q</div>`;
 
-  const isAdmin = (await getMe())?.role === "admin";
-  const ulink = (id, inner, style = "") => isAdmin ? `<a href="/users#${id}" style="${style}">${inner}</a>` : `<span style="${style}">${inner}</span>`;
   const users = s.users.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
   $("utable").innerHTML = `<tr><th>Foydalanuvchi</th><th class="num">Yuz</th><th class="num">Tana</th><th class="num">Avto</th><th class="num">Ko'rilgan</th><th>Oxirgi marta</th><th>Oxirgi ko'rinishi</th></tr>` +
     (users.length ? users.map((u) => `<tr><td>${ulink(u.id, `${avatar(u, "avatar")}<span>${esc(u.name)}<div class="small muted">${esc(u.department || "")}</div></span>`, "display:flex;gap:8px;align-items:center")}</td>

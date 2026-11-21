@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tizimga kirish</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/common.js"></script>
+</head>
+<body data-nonav>
+<div class="auth-wrap"><form class="card auth" id="f">
+  <div class="brand"><span class="dot"></span>Yuz va tana tanib olish</div>
+  <h1>Tizimga kirish</h1><div class="sub">Login va parolingizni kiriting</div>
+  <label class="field"><span>Login</span><input type="text" id="username" autocomplete="username" autofocus required></label>
+  <label class="field"><span>Parol</span><input type="password" id="password" autocomplete="current-password" required></label>
+  <label class="toggle small" style="margin-bottom:14px"><input type="checkbox" id="remember"> Meni eslab qol (7 kun)</label>
+  <button class="primary" type="submit">Kirish</button>
+  <div id="msg"></div>
+  <div class="alt" id="alt">Hisobingiz yo'qmi? <a href="/signup">Ro'yxatdan o'ting</a></div>
+</form></div>
+<script>
+const $ = (id) => document.getElementById(id);
+api("/api/auth/status").then((s) => {
+  if (s.first) location.href = "/signup";
+  else if (!s.signup_open) $("alt").textContent = "Yangi hisob ochish uchun admin bilan bog'laning";
+});
+$("f").onsubmit = async (e) => {
+  e.preventDefault();
+  const next = new URLSearchParams(location.search).get("next") || "";
+  const r = await api("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: $("username").value, password: $("password").value, remember: $("remember").checked, next }) });
+  if (r.ok) location.href = r.home;
+  else $("msg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+};
+</script>
+</body>
+</html>

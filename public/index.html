@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kamera — Tanib olish</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/common.js"></script>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div><h1>Jonli tanib olish</h1><div class="muted small">Modellar shu qurilmada ishlaydi. Video serverga yuborilmaydi.</div></div>
+    <div class="row">
+      <label class="toggle" data-role="admin"><input type="checkbox" id="learn" checked> Avto-o'rganish</label>
+      <label class="toggle" data-role="admin"><input type="checkbox" id="diag"> Diagnostika</label>
+      <label class="toggle"><input type="checkbox" id="body"> Tana</label>
+      <label class="toggle"><input type="checkbox" id="attrs" checked> Atributlar</label>
+      <button id="flip" title="Old/orqa kamera">🔄 Kamera</button>
+      <button id="toggle" class="primary">Kamerani yoqish</button>
+    </div>
+  </div>
+  <div class="grid cols-2">
+    <div>
+      <div class="video-wrap"><video id="video" playsinline muted></video><canvas id="overlay"></canvas>
+        <div class="loader hidden" id="loader"></div>
+        <div class="hint" id="hint">"Kamerani yoqish" tugmasini bosing</div></div>
+      <div class="row small muted" style="margin-top:8px">
+        <span id="perf">—</span>
+        <span class="badge ok">Yashil: tanildi</span><span class="badge warn">Sariq: o'rgandi</span>
+        <span class="badge bad">Qizil: noma'lum</span><span class="badge" style="color:var(--body)">Binafsha: tana</span>
+      </div>
+    </div>
+    <div class="grid" style="align-content:start">
+      <div class="card"><h2>Kadrda</h2><div class="list" id="present"><div class="muted">Hech kim yo'q</div></div></div>
+      <div class="card"><h2>O'rganish jurnali</h2><div class="feed" id="feed"><div class="muted">Hozircha yo'q</div></div></div>
+    </div>
+  </div>
+</main>
+<script type="module">
+import * as ml from "/js/ml.js";
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), hint = $("hint"), btn = $("toggle");
+const progress = modelProgress($("loader"));
+const MAX_SIDE = ml.isMobile ? 640 : 960;
+const ATTR_SMOOTH = 0.35;
+let stream = null, running = false, facing = "user";
+let tracks = [], nextId = 1, bodiesView = { ts: 0, items: [] }, inflight = false, lastIdentify = 0, lastBodies = 0;
+let ATTR = {}; // key -> {label, icon, threshold}
+api("/api/attributes").then((r) => { ATTR = Object.fromEntries(r.items.map((a) => [a.key, a])); }).catch(() => {});
+
+const on = (id) => $(id)?.checked ?? false;
+async function ensureModels() {
+  await ml.load(ml.GROUPS.face, progress);
+  if (on("body")) ml.load(ml.GROUPS.body, progress).catch((e) => console.warn(e));
+  if (on("attrs")) ml.load(ml.GROUPS.attrs, progress).catch((e) => console.warn(e));
+}
+$("body").onchange = () => running && ensureModels();
+$("attrs").onchange = () => running && ensureModels();
+
+btn.onclick = async () => {
+  if (running) { stop(); return; }
+  btn.disabled = true;
+  try {
+    hint.textContent = "Modellar yuklanmoqda...";
+    const cam = startCamera(video, facing);
+    await ensureModels();
+    stream = await cam;
+    running = true; btn.textContent = "To'xtatish"; hint.classList.add("hidden");
+    loop();
+  } catch (e) { hint.classList.remove("hidden"); hint.textContent = "Xato: " + e.message; }
+  btn.disabled = false;
+};
+$("flip").onclick = async () => {
+  facing = facing === "user" ? "environment" : "user";
+  if (!running) return;
+  stream?.getTracks().forEach((t) => t.stop());
+  try { stream = await startCamera(video, facing); tracks = []; } catch (e) { hint.textContent = e.message; }
+};
+function stop() {
+  running = false; btn.textContent = "Kamerani yoqish";
+  stream?.getTracks().forEach((t) => t.stop());
+  tracks = []; drawResults(overlay, video, null);
+  hint.classList.remove("hidden"); hint.textContent = "Kamera o'chirilgan";
+}
+
+// ---------------- tez tsikl: aniqlash + kuzatish + chizish ----------------
+async function loop() {
+  let frames = 0, t0 = performance.now();
+  while (running) {
+    if (!video.videoWidth) { await new Promise((r) => requestAnimationFrame(r)); continue; }
+    const frame = ml.frameFrom(video, MAX_SIDE);
+    const faces = await ml.detectFaces(frame);
+    updateTracks(faces);
+    draw(frame);
+    const now = performance.now();
+    const needs = tracks.some((t) => !t.idAt || now - t.idAt > (t.user ? 2500 : 900));
+    const bodyDue = on("body") && ml.ready("reid") && now - lastBodies > 2000;
+    if (!inflight && now - lastIdentify > 700 && (needs || bodyDue)) {
+      inflight = true; lastIdentify = now;
+      identify(frame, tracks.slice(0, 4)).catch((e) => { $("perf").textContent = "Xato: " + e.message; })
+        .finally(() => { inflight = false; });
+    }
+    frames++;
+    if (now - t0 > 1000) { $("perf").textContent = `${(frames * 1000 / (now - t0)).toFixed(1)} kadr/s · ${ml.isMobile ? "mobil" : "kompyuter"}`; frames = 0; t0 = now; }
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+}
+
+function updateTracks(faces) {
+  const now = performance.now(), used = new Set();
+  for (const f of faces) {
+    let best = null, bi = 0.3;
+    for (const t of tracks) { if (used.has(t)) continue; const v = ml.iou(t.box, f.box); if (v > bi) { bi = v; best = t; } }
+    if (!best) { best = { id: nextId++, attrsP: null, attrsAt: 0 }; tracks.push(best); }
+    best.box = f.box; best.face = f; best.seen = now; used.add(best);
+  }
+  tracks = tracks.filter((t) => now - t.seen < 800).sort((a, b) => b.box[2] * b.box[3] - a.box[2] * a.box[3]);
+}
+
+function presentAttrs(p) {
+  if (!p) return null;
+  const present = Object.entries(p).filter(([k, v]) => ATTR[k] && v >= ATTR[k].threshold)
+    .map(([k, v]) => ({ key: k, label: ATTR[k].label, icon: ATTR[k].icon, p: v }));
+  if (present.some((a) => a.key === "sunglasses")) return { present: present.filter((a) => a.key !== "glasses"), all: p };
+  return { present, all: p };
+}
+
+function draw(frame) {
+  const now = performance.now();
+  const res = {
+    size: [frame.width, frame.height],
+    faces: tracks.map((t) => ({ box: t.box, name: t.user?.name, score: t.user?.score ?? 0, learned: now - (t.learnedAt || 0) < 1500,
+      attrs: on("attrs") ? presentAttrs(t.attrsP) : null, pending: !t.idAt })),
+    bodies: now - bodiesView.ts < 3000 ? bodiesView.items : [],
+  };
+  drawResults(overlay, video, res);
+  renderSide(res);
+}
+
+// ---------------- sekin tsikl: embedding -> server ----------------
+async function identify(frame, list) {
+  const now = performance.now();
+  const faces = [];
+  for (const t of list) {
+    const emb = await ml.faceEmbedding(frame, t.face);
+    t._emb = emb;
+    if (on("attrs") && ml.ready("clip") && now - t.attrsAt > 1200) {
+      const p = await ml.attributes(frame, t.face);
+      t.attrsP = t.attrsP ? Object.fromEntries(Object.entries(p).map(([k, v]) => [k, (1 - ATTR_SMOOTH) * t.attrsP[k] + ATTR_SMOOTH * v])) : p;
+      t.attrsAt = now;
+    }
+    const pa = on("attrs") && t.attrsP ? presentAttrs(t.attrsP) : null;
+    faces.push({ emb: ml.b64(emb), det: t.face.score, size: Math.min(t.box[2], t.box[3]) / frame.scale,
+      ...(pa ? { attrs: pa.present.map((a) => a.key) } : {}) });
+  }
+  let bodies = [];
+  if (on("body") && ml.ready("yolox") && ml.ready("reid")) {
+    lastBodies = now;
+    const det = await ml.detectBodies(frame);
+    ml.linkFacesToBodies(list.map((t) => t.face), det);
+    for (const b of det.slice(0, 4)) b.emb = await ml.bodyEmbedding(frame, b.box);
+    bodies = det.slice(0, 4);
+  }
+  const learn = $("learn") ? on("learn") : true;
+  const res = await api("/api/recognize", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ learn, faces, bodies: bodies.map((b) => ({ emb: ml.b64(b.emb), faces: b.faces })) }) });
+  if (res.ok === false) throw new Error(res.error);
+  const t1 = performance.now();
+  res.faces.forEach((r, i) => { list[i].user = r.user_id ? r : null; list[i].idAt = t1; });
+  bodiesView = { ts: t1, items: bodies.map((b, i) => ({ box: b.box, ...res.bodies[i] })) };
+  if (res.events?.length) $("feed").innerHTML = res.events.map((e) => `<div class="ev"><time>${fmtTime(e.ts)}</time><span>${esc(e.text)}</span></div>`).join("");
+  // o'rganish: server ruxsat bergan namunalar uchun kichik kesim yuboramiz
+  for (const l of res.learn || []) {
+    const face = l.kind === "face", t = face ? list[l.index] : null, b = face ? null : bodies[l.index];
+    const emb = face ? t._emb : b.emb;
+    const crop = ml.cropJpeg(frame, face ? t.box : b.box, face ? 0.25 : 0, face ? 192 : 256);
+    const r = await api("/api/learn", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...l, emb: ml.b64(emb), crop }) });
+    if (r.learned && t) t.learnedAt = performance.now();
+  }
+}
+
+function diagBars(all) {
+  return `<div class="small" style="margin-top:6px">${Object.entries(all).map(([k, p]) => {
+    const t = ATTR[k]?.threshold ?? 0.6, ok = p >= t;
+    return `<div class="row" style="gap:6px;flex-wrap:nowrap"><span style="width:120px;flex:none">${ATTR[k]?.icon || ""} ${esc(ATTR[k]?.label || k)}</span>
+      <div class="bar" style="flex:1;position:relative"><div style="width:${p * 100}%;background:${ok ? "var(--ok)" : "var(--muted)"}"></div>
+      <span style="position:absolute;left:${t * 100}%;top:-2px;bottom:-2px;width:2px;background:var(--text)"></span></div>
+      <span style="width:34px;text-align:right">${Math.round(p * 100)}</span></div>`; }).join("")}
+    <div class="muted">Qora chiziq: chegara. <a href="/settings">Sozlamalar →</a></div></div>`;
+}
+
+let lastSide = "";
+function renderSide(res) {
+  const people = res.faces.map((f) => ({ name: f.name, score: f.score, via: "yuz", attrs: f.attrs, pending: f.pending }));
+  for (const b of res.bodies) if (b.via === "body") people.push({ name: b.name, score: b.score, via: "tana" });
+  const html = people.length ? people.map((p) => `
+    <div class="item"><div class="avatar" style="width:48px;height:48px;font-size:18px">${esc(initials(p.name || "?"))}</div>
+      <div style="flex:1;min-width:0"><div class="pname">${p.pending ? "Aniqlanmoqda..." : esc(p.name || "Noma'lum")}</div>
+        <div class="small muted">${p.via} bo'yicha · o'xshashlik ${(p.score * 100).toFixed(0)}%</div>
+        ${p.attrs?.all && on("diag") ? diagBars(p.attrs.all) : ""}
+        ${p.attrs ? `<div class="chips">${attrChips(p.attrs) || '<span class="small muted">qo\'shimcha narsa aniqlanmadi</span>'}</div>` : ""}</div>
+      <span class="badge ${p.pending ? "" : p.name ? (p.via === "tana" ? "acc" : "ok") : "bad"}">${p.pending ? "..." : p.name ? (p.via === "tana" ? "taxminiy" : "tanildi") : "noma'lum"}</span></div>`).join("")
+    : `<div class="muted">Hech kim yo'q</div>`;
+  if (html !== lastSide) { $("present").innerHTML = html; lastSide = html; }
+}
+</script>
+</body>
+</html>

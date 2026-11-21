@@ -1,0 +1,12 @@
+{
+  "name": "ml-parity-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node ml_parity.mjs"
+  },
+  "devDependencies": {
+    "onnxruntime-node": "1.30.0",
+    "puppeteer-core": "^24.43.1"
+  }
+}

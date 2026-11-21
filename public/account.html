@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mening hisobim</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/common.js"></script>
+</head>
+<body>
+<main style="max-width:560px">
+  <div class="head"><div><h1>Mening hisobim</h1><div class="muted" id="info"></div></div></div>
+  <form class="card" id="f"><h2>Parolni o'zgartirish</h2>
+    <label class="field"><span>Joriy parol</span><input type="password" id="old" autocomplete="current-password" required></label>
+    <label class="field"><span>Yangi parol (kamida 8 belgi)</span><input type="password" id="new" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span>Yangi parolni takrorlang</span><input type="password" id="new2" autocomplete="new-password" required minlength="8"></label>
+    <button class="primary" type="submit">Saqlash</button>
+    <div class="small muted" style="margin-top:8px">Parol o'zgarganda boshqa qurilmalardagi kirishlar bekor qilinadi.</div>
+    <div id="msg"></div></form>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+getMe().then((m) => { if (m) $("info").textContent = `${m.full_name} · login: ${m.username} · rol: ${m.role_label}`; });
+$("f").onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await api("/api/auth/password", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ old: $("old").value, new: $("new").value, new2: $("new2").value }) });
+  $("msg").innerHTML = r.ok ? `<div class="alert ok">Parol o'zgartirildi</div>` : `<div class="alert bad">${esc(r.error)}</div>`;
+  if (r.ok) $("f").reset();
+};
+</script>
+</body>
+</html>

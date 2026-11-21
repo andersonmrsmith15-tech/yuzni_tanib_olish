@@ -1,0 +1,67 @@
+{
+ "items": [
+  {
+   "key": "glasses",
+   "label": "Ko'zoynak",
+   "icon": "👓",
+   "default": 0.6,
+   "crop": "head"
+  },
+  {
+   "key": "sunglasses",
+   "label": "Qora ko'zoynak",
+   "icon": "🕶️",
+   "default": 0.65,
+   "crop": "head"
+  },
+  {
+   "key": "hat",
+   "label": "Kepka / bosh kiyim",
+   "icon": "🧢",
+   "default": 0.6,
+   "crop": "head"
+  },
+  {
+   "key": "beard",
+   "label": "Soqol",
+   "icon": "🧔",
+   "default": 0.6,
+   "crop": "face"
+  },
+  {
+   "key": "mustache",
+   "label": "Mo'ylov",
+   "icon": "👨",
+   "default": 0.65,
+   "crop": "face"
+  },
+  {
+   "key": "mask",
+   "label": "Niqob",
+   "icon": "😷",
+   "default": 0.65,
+   "crop": "head"
+  },
+  {
+   "key": "headphones",
+   "label": "Quloqchin",
+   "icon": "🎧",
+   "default": 0.7,
+   "crop": "head"
+  },
+  {
+   "key": "headscarf",
+   "label": "Ro'mol",
+   "icon": "🧕",
+   "default": 0.75,
+   "crop": "head"
+  },
+  {
+   "key": "earrings",
+   "label": "Sirg'a",
+   "icon": "💎",
+   "default": 0.78,
+   "crop": "head"
+  }
+ ]
+}

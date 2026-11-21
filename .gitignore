@@ -1,7 +1,12 @@
 .venv/
-models/*.onnx
-data/
+.env
+.env.*
+!.env.example
+.vercel/
 __pycache__/
-models/clip/*.onnx
-models/clip/prompts_cache.npz
-data/secret.key
+node_modules/
+models/
+data/
+legacy/models
+legacy/data
+tests/ref/

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hisoblar</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/common.js"></script>
+</head>
+<body>
+<main>
+  <div class="head"><div><h1>Tizim hisoblari</h1>
+    <div class="muted">Admin: barcha imkoniyatlar · Direktor: faqat Dashboard · Foydalanuvchi: faqat Kamera</div></div>
+    <button class="primary" id="addBtn">+ Yangi hisob</button></div>
+
+  <form class="card hidden" id="addForm" style="margin-bottom:16px"><h2>Yangi hisob qo'shish</h2>
+    <div class="grid cols-2e" style="gap:0 16px">
+      <label class="field"><span>Ism familiya</span><input type="text" id="a_full_name" required></label>
+      <label class="field"><span>Login</span><input type="text" id="a_username" required minlength="3" pattern="[A-Za-z0-9_.]+"></label>
+      <label class="field"><span>Parol (kamida 8 belgi)</span><input type="password" id="a_password" required minlength="8" autocomplete="new-password"></label>
+      <label class="field"><span>Rol</span><select id="a_role"><option value="user">Foydalanuvchi</option><option value="director">Direktor</option><option value="admin">Admin</option></select></label>
+    </div>
+    <div class="row"><button class="primary" type="submit">Qo'shish</button><button type="button" id="addCancel">Bekor qilish</button></div>
+    <div id="addMsg"></div></form>
+
+  <div id="msg"></div>
+  <div class="card" style="overflow-x:auto"><table id="tbl"></table></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const J = (method, body) => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+let data;
+async function load() {
+  data = await api("/api/accounts");
+  const opts = (sel) => Object.entries(data.roles).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v}</option>`).join("");
+  $("tbl").innerHTML = `<tr><th>Ism</th><th>Login</th><th>Rol</th><th>Holat</th><th>Oxirgi kirish</th><th>Yaratilgan</th><th></th></tr>` +
+    data.accounts.map((a) => { const me = a.id === data.me; return `<tr data-id="${a.id}">
+      <td><b>${esc(a.full_name)}</b>${me ? ' <span class="badge acc">siz</span>' : ""}</td>
+      <td class="muted">${esc(a.username)}</td>
+      <td><select class="role" ${me ? "disabled" : ""} style="width:auto">${opts(a.role)}</select></td>
+      <td><label class="toggle"><input type="checkbox" class="active" ${a.active ? "checked" : ""} ${me ? "disabled" : ""}> ${a.active ? "Faol" : "Bloklangan"}</label></td>
+      <td class="small muted">${a.last_login ? fmtDate(a.last_login) : "—"}</td>
+      <td class="small muted">${fmtDate(a.created)}</td>
+      <td><div class="row" style="flex-wrap:nowrap"><button class="pw">Parolni tiklash</button>${me ? "" : '<button class="danger del">O\'chirish</button>'}</div></td></tr>`; }).join("");
+  document.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const id = tr.dataset.id, a = data.accounts.find((x) => x.id === id);
+    tr.querySelector(".role").onchange = (e) => patch(id, { role: e.target.value });
+    tr.querySelector(".active").onchange = (e) => patch(id, { active: e.target.checked });
+    tr.querySelector(".pw").onclick = () => {
+      const p = prompt(`${a.full_name} uchun yangi parol (kamida 8 belgi):`);
+      if (p) patch(id, { password: p }, "Parol yangilandi. Bu hisobning boshqa qurilmalardagi kirishlari bekor qilindi.");
+    };
+    tr.querySelector(".del")?.addEventListener("click", async () => {
+      if (!confirm(`${a.full_name} (${a.username}) hisobi o'chirilsinmi?`)) return;
+      show(await api(`/api/accounts/${id}`, { method: "DELETE" }), "Hisob o'chirildi");
+    });
+  });
+}
+function show(r, okText) {
+  $("msg").innerHTML = r.ok ? `<div class="alert ok">${okText}</div>` : `<div class="alert bad">${esc(r.error)}</div>`;
+  load();
+}
+async function patch(id, body, okText = "Saqlandi") { show(await api(`/api/accounts/${id}`, J("PATCH", body)), okText); }
+
+$("addBtn").onclick = () => $("addForm").classList.remove("hidden");
+$("addCancel").onclick = () => $("addForm").classList.add("hidden");
+$("addForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const body = {}; for (const k of ["full_name", "username", "password", "role"]) body[k] = $("a_" + k).value;
+  const r = await api("/api/accounts", J("POST", body));
+  if (r.ok) { $("addForm").reset(); $("addForm").classList.add("hidden"); show(r, `${esc(r.account.full_name)} qo'shildi (${r.account.role_label})`); }
+  else $("addMsg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+};
+load();
+</script>
+</body>
+</html>

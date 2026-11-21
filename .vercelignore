@@ -1,0 +1,10 @@
+.venv
+.env
+.env.*
+legacy
+models
+data
+tests
+scripts
+__pycache__
+node_modules
