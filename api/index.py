@@ -73,6 +73,8 @@ def gate():
         if miss:
             return jsonify({"ok": False, "error": "Server sozlanmagan: Vercel → Project → Settings → Environment Variables "
                                                   f"bo'limiga {', '.join(miss)} qo'shing va qayta deploy qiling."}), 500
+    if request.path.startswith("/api/") and request.url_rule is None:
+        return jsonify({"ok": False, "error": f"API topilmadi: {request.method} {request.path}"}), 404
     need = required_roles(request.path, request.method)
     if need is None:
         return None

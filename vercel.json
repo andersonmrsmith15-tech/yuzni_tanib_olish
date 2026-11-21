@@ -9,9 +9,6 @@
       "excludeFiles": "{public/**,legacy/**,tests/**,scripts/**,models/**,data/**,.venv/**}"
     }
   },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" }
-  ],
   "headers": [
     {
       "source": "/(.*)",
