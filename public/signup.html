@@ -26,7 +26,8 @@
 </form></div>
 <script>
 const $ = (id) => document.getElementById(id);
-api("/api/auth/status").then((s) => {
+api("/api/auth/status").catch((err) => { $("msg").innerHTML = `<div class="alert bad">${esc(err.message)}</div>`; return null; }).then((s) => {
+  if (!s) return;
   if (s.first) $("sub").innerHTML = "<b>Birinchi hisob</b> — siz tizim <b>admini</b> bo'lasiz";
   else if (!s.signup_open) { $("closed").classList.remove("hidden"); $("form").classList.add("hidden"); }
   else $("sub").textContent = "Yangi hisob oddiy foydalanuvchi sifatida ochiladi (faqat kamera). Rolni admin o'zgartiradi.";
@@ -35,9 +36,13 @@ $("f").onsubmit = async (e) => {
   e.preventDefault();
   if ($("password").value !== $("password2").value) { $("msg").innerHTML = `<div class="alert bad">Parollar mos emas</div>`; return; }
   const body = {}; for (const k of ["full_name", "username", "password", "password2"]) body[k] = $(k).value;
-  const r = await api("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (r.ok) location.href = r.home;
-  else $("msg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+  const btn = e.submitter; if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.ok) { location.href = r.home; return; }
+    $("msg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+  } catch (err) { $("msg").innerHTML = `<div class="alert bad">${esc(err.message)}</div>`; }
+  if (btn) btn.disabled = false;
 };
 </script>
 </body>

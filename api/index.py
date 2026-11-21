@@ -18,16 +18,21 @@ from lib.auth import HOME, PAGES, ROLES, AuthError  # noqa: E402
 from lib.db import ROOT  # noqa: E402
 
 app = Flask(__name__)
-secret = os.environ.get("SECRET_KEY")
-if not secret:
-    if os.environ.get("VERCEL"):
-        raise RuntimeError("SECRET_KEY muhit o'zgaruvchisi o'rnatilmagan")
-    secret = "local-dev-only"
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+REQUIRED_ENV = ("DATABASE_URL", "SECRET_KEY")
+
+
+def missing_env() -> list[str]:
+    return [k for k in REQUIRED_ENV if not os.environ.get(k)]
+
+
+# SECRET_KEY bo'lmasa server yiqilmasin: aniq xato xabari qaytaramiz (pastdagi gate ga qarang)
+secret = os.environ.get("SECRET_KEY") or ("" if ON_VERCEL else "local-dev-only")
 app.config.update(
-    SECRET_KEY=secret,
+    SECRET_KEY=secret or "missing",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")),
+    SESSION_COOKIE_SECURE=ON_VERCEL,
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     MAX_CONTENT_LENGTH=4_400_000,  # Vercel so'rov hajmi chegarasi ~4.5 MB
 )
@@ -63,6 +68,11 @@ def current_account():
 
 @app.before_request
 def gate():
+    if request.path.startswith("/api/") and request.path != "/api/health":
+        miss = [k for k in missing_env() if ON_VERCEL or k != "SECRET_KEY"]
+        if miss:
+            return jsonify({"ok": False, "error": "Server sozlanmagan: Vercel → Project → Settings → Environment Variables "
+                                                  f"bo'limiga {', '.join(miss)} qo'shing va qayta deploy qiling."}), 500
     need = required_roles(request.path, request.method)
     if need is None:
         return None
@@ -78,6 +88,18 @@ def gate():
 @app.errorhandler(ValueError)
 def bad_value(e):
     return jsonify({"ok": False, "error": f"Noto'g'ri ma'lumot: {e}"}), 400
+
+
+@app.errorhandler(Exception)
+def server_error(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return jsonify({"ok": False, "error": e.description or e.name}), e.code
+    app.logger.exception("server xatosi")
+    msg = str(e).split("\n")[0][:300]
+    if "password" in msg.lower():
+        msg = "ma'lumotlar bazasiga ulanib bo'lmadi (DATABASE_URL ni tekshiring)"
+    return jsonify({"ok": False, "error": f"Server xatosi ({type(e).__name__}): {msg}"}), 500
 
 
 @app.errorhandler(413)
@@ -102,7 +124,17 @@ def _login(acc: dict, remember: bool) -> None:
 
 @app.get("/api/health")
 def api_health():
-    return jsonify({"ok": True, "users": people.db.val("SELECT COUNT(*) FROM users")})
+    """Diagnostika: sozlamalar va bazaga ulanish (maxfiy qiymatlarni ko'rsatmaydi)."""
+    res = {"vercel": ON_VERCEL, "env": {k: bool(os.environ.get(k)) for k in REQUIRED_ENV}}
+    try:
+        res["tables"] = people.db.val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' "
+                                      "AND table_name IN ('users','samples','events','accounts','settings','counters','login_attempts')")
+        res["db"] = "ok" if res["tables"] == 7 else "jadvallar yetishmaydi: python scripts/migrate.py ni ishga tushiring"
+        res["accounts"] = people.db.val("SELECT COUNT(*) FROM accounts") if res["tables"] == 7 else None
+    except Exception as e:  # noqa: BLE001
+        res["db"] = f"ulanib bo'lmadi: {type(e).__name__}"
+    res["ok"] = res["db"] == "ok" and all(res["env"].values())
+    return jsonify(res), (200 if res["ok"] else 500)
 
 
 @app.get("/api/auth/status")

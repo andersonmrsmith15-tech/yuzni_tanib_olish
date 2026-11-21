@@ -22,17 +22,22 @@
 </form></div>
 <script>
 const $ = (id) => document.getElementById(id);
-api("/api/auth/status").then((s) => {
+api("/api/auth/status").catch((err) => { $("msg").innerHTML = `<div class="alert bad">${esc(err.message)}</div>`; return null; }).then((s) => {
+  if (!s) return;
   if (s.first) location.href = "/signup";
   else if (!s.signup_open) $("alt").textContent = "Yangi hisob ochish uchun admin bilan bog'laning";
 });
 $("f").onsubmit = async (e) => {
   e.preventDefault();
   const next = new URLSearchParams(location.search).get("next") || "";
-  const r = await api("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: $("username").value, password: $("password").value, remember: $("remember").checked, next }) });
-  if (r.ok) location.href = r.home;
-  else $("msg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+  const btn = e.submitter; if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("username").value, password: $("password").value, remember: $("remember").checked, next }) });
+    if (r.ok) { location.href = r.home; return; }
+    $("msg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+  } catch (err) { $("msg").innerHTML = `<div class="alert bad">${esc(err.message)}</div>`; }
+  if (btn) btn.disabled = false;
 };
 </script>
 </body>

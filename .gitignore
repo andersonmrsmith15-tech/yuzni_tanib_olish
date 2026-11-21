@@ -5,8 +5,8 @@
 .vercel/
 __pycache__/
 node_modules/
-models/
-data/
+/models/
+/data/
 legacy/models
 legacy/data
 tests/ref/

@@ -45,7 +45,11 @@ async function api(url, opts = {}) {
   if (r.status === 401 && !url.startsWith("/api/auth/")) { location.href = "/login?next=" + encodeURIComponent(location.pathname); throw new Error("Tizimga kiring"); }
   let data = null;
   try { data = await r.json(); } catch { data = null; }
-  if (!r.ok && !(data && "ok" in data)) throw new Error((data && data.error) || `${r.status} ${r.statusText}`);
+  if (!r.ok && !(data && "ok" in data)) {
+    throw new Error((data && data.error) || (r.status === 404 && url.startsWith("/api/")
+      ? "API topilmadi (404): Vercel'da Python funksiyasi ishga tushmagan bo'lishi mumkin"
+      : `Server javob bermadi: ${r.status} ${r.statusText}`));
+  }
   return data;
 }
 

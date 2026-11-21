@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def load_env() -> None:
     """Lokal ishga tushirishda .env ni o'qiydi (Vercelda o'zgaruvchilar paneldan keladi)."""
     path = os.path.join(ROOT, ".env")
-    if not os.path.exists(path):
+    if os.environ.get("VERCEL") or not os.path.exists(path):
         return
     with open(path, encoding="utf-8") as f:
         for line in f:
