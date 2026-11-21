@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ro'yxatdan o'tish</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/common.js"></script>
+</head>
+<body data-nonav>
+<div class="auth-wrap"><form class="card auth" id="f">
+  <div class="brand"><span class="dot"></span>Yuz va tana tanib olish</div>
+  <h1>Ro'yxatdan o'tish</h1><div class="sub" id="sub">Yangi hisob oching</div>
+  <div id="closed" class="alert warn hidden">Ro'yxatdan o'tish admin tomonidan yopilgan. Hisob ochish uchun admin bilan bog'laning.</div>
+  <div id="form">
+    <label class="field"><span>Ism familiya</span><input type="text" id="full_name" autocomplete="name" required></label>
+    <label class="field"><span>Login (lotin harflari, raqamlar, _ yoki .)</span><input type="text" id="username" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.]+"></label>
+    <label class="field"><span>Parol (kamida 8 belgi)</span><input type="password" id="password" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span>Parolni takrorlang</span><input type="password" id="password2" autocomplete="new-password" required minlength="8"></label>
+    <button class="primary" type="submit">Hisob ochish</button>
+  </div>
+  <div id="msg"></div>
+  <div class="alt">Hisobingiz bormi? <a href="/login">Kirish</a></div>
+</form></div>
+<script>
+const $ = (id) => document.getElementById(id);
+api("/api/auth/status").then((s) => {
+  if (s.first) $("sub").innerHTML = "<b>Birinchi hisob</b> — siz tizim <b>admini</b> bo'lasiz";
+  else if (!s.signup_open) { $("closed").classList.remove("hidden"); $("form").classList.add("hidden"); }
+  else $("sub").textContent = "Yangi hisob oddiy foydalanuvchi sifatida ochiladi (faqat kamera). Rolni admin o'zgartiradi.";
+});
+$("f").onsubmit = async (e) => {
+  e.preventDefault();
+  if ($("password").value !== $("password2").value) { $("msg").innerHTML = `<div class="alert bad">Parollar mos emas</div>`; return; }
+  const body = {}; for (const k of ["full_name", "username", "password", "password2"]) body[k] = $(k).value;
+  const r = await api("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.ok) location.href = r.home;
+  else $("msg").innerHTML = `<div class="alert bad">${esc(r.error)}</div>`;
+};
+</script>
+</body>
+</html>

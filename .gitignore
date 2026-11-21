@@ -1,0 +1,7 @@
+.venv/
+models/*.onnx
+data/
+__pycache__/
+models/clip/*.onnx
+models/clip/prompts_cache.npz
+data/secret.key

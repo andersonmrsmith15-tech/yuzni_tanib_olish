@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/common.js"></script>
+<style>
+  :root { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; }
+  @media (prefers-color-scheme: dark) { :root { --s1: #3987e5; --s2: #d95926; --s3: #199e70; } }
+  .tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.15); z-index: 30; }
+  .tip b { display: block; margin-bottom: 2px; }
+  .hit { fill: transparent; }
+  .hit:hover { fill: var(--panel-2); }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div><h1>Dashboard</h1><div class="muted">Tizim statistikasi · har 5 soniyada yangilanadi · <span id="upd"></span></div></div>
+    <div class="row" data-role="admin"><a class="btn" href="/register">+ Ro'yxatdan o'tkazish</a></div>
+  </div>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="grid cols-2e" style="margin-top:16px">
+    <div class="card chart"><h2>Oxirgi 14 kun</h2><div id="days"></div>
+      <div class="legend"><span><i style="background:var(--s1)"></i>Tanilgan</span><span><i style="background:var(--s2)"></i>Noma'lum</span><span><i style="background:var(--s3)"></i>O'rganilgan</span></div></div>
+    <div class="card chart"><h2>Bugun soatlar bo'yicha tanib olishlar</h2><div id="hours"></div></div>
+  </div>
+
+  <div class="grid cols-2" style="margin-top:16px">
+    <div class="card"><h2>Foydalanuvchilar va o'rganish holati</h2>
+      <div style="overflow-x:auto"><table id="utable"></table></div></div>
+    <div class="grid" style="align-content:start">
+      <div class="card"><h2>Eng ko'p tanilganlar (30 kun)</h2><div id="top"></div></div>
+      <div class="card"><h2>Tanib olish usuli (30 kun)</h2><div id="via"></div></div>
+      <div class="card"><h2>Bugun aniqlangan atributlar</h2><div id="attrs"></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between"><h2>Hodisalar jurnali</h2>
+    <select id="etype" style="width:auto"><option value="">Barchasi</option><option value="recognized">Tanilgan</option>
+      <option value="unknown">Noma'lum</option><option value="learn">O'rganish</option><option value="register">Ro'yxatdan o'tish</option>
+      <option value="upload">Rasm yuklash</option><option value="delete">O'chirish</option><option value="login">Tizimga kirish</option><option value="account">Hisob</option></select></div>
+    <div class="feed" id="events"></div></div>
+</main>
+<div class="tip hidden" id="tip"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+let META = {};
+const tip = $("tip");
+function showTip(e, html) { tip.innerHTML = html; tip.classList.remove("hidden");
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8); tip.style.left = x + "px"; tip.style.top = (e.clientY + 14) + "px"; }
+const hideTip = () => tip.classList.add("hidden");
+
+function niceMax(v) { if (v <= 4) return 4; const p = 10 ** Math.floor(Math.log10(v)); const m = [1, 2, 2.5, 5, 10].find((m) => m * p >= v); return m * p; }
+
+// Guruhlangan / oddiy ustunli grafik (SVG)
+function barChart(el, labels, series, tipFn) {
+  const W = 560, H = 220, L = 32, B = 22, T = 8, R = 4;
+  const max = niceMax(Math.max(1, ...series.flatMap((s) => s.values)));
+  const pw = W - L - R, ph = H - T - B, gw = pw / labels.length;
+  const n = series.length, gap = 2, bw = Math.max(2, Math.min(18, (gw * 0.72 - gap * (n - 1)) / n));
+  let g = "";
+  for (let i = 0; i <= 4; i++) { const v = (max / 4) * i, y = T + ph - (v / max) * ph;
+    g += `<g class="grid"><line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/></g><text class="axis" x="${L - 6}" y="${y + 3}" text-anchor="end">${v}</text>`; }
+  labels.forEach((lab, i) => {
+    const gx = L + i * gw, start = gx + (gw - (bw * n + gap * (n - 1))) / 2;
+    g += `<rect class="hit" x="${gx}" y="${T}" width="${gw}" height="${ph}" data-i="${i}"/>`;
+    series.forEach((s, k) => { const v = s.values[i]; if (!v) return; const h = (v / max) * ph, x = start + k * (bw + gap), y = T + ph - h, r = Math.min(4, bw / 2, h);
+      g += `<path pointer-events="none" fill="${s.color}" d="M${x},${T + ph} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${T + ph} Z"/>`; });
+    const every = Math.ceil(labels.length / 12);
+    if (i % every === 0) g += `<text class="axis" x="${gx + gw / 2}" y="${H - 6}" text-anchor="middle">${lab}</text>`;
+  });
+  g += `<line x1="${L}" x2="${W - R}" y1="${T + ph}" y2="${T + ph}" stroke="var(--muted)" stroke-width="1"/>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+  el.querySelectorAll(".hit").forEach((r) => { r.onmousemove = (e) => showTip(e, tipFn(+r.dataset.i)); r.onmouseleave = hideTip; });
+}
+
+const TYPE = { recognized: ["Tanildi", "ok"], unknown: ["Noma'lum", "bad"], learn: ["O'rgandi", "warn"], register: ["Ro'yxat", "acc"], upload: ["Yuklash", "acc"], delete: ["O'chirildi", "bad"], login: ["Kirish", ""], account: ["Hisob", "acc"] };
+function evText(e) {
+  if (e.type === "recognized") return `<b>${esc(e.user_name)}</b> tanildi — ${e.via === "body" ? "tana" : "yuz"} bo'yicha, ${(e.score * 100).toFixed(0)}% ${e.attrs?.length ? keyChips(e.attrs, META) : ""}`;
+  return esc(e.text || e.type);
+}
+
+async function refresh() {
+  let s;
+  try { s = await api("/api/stats"); } catch (e) { $("upd").textContent = "Server bilan aloqa yo'q"; return; }
+  const t = s.totals;
+  const kpi = (label, value, sub = "") => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+  $("kpis").innerHTML = [
+    kpi("Foydalanuvchilar", t.users, `oxirgi 7 kunda +${t.registered_week}`),
+    kpi("Bugun tanilgan", t.recognized_today, `${t.unique_today} ta turli odam`),
+    kpi("Bugun noma'lum", t.unknown_today, "ro'yxatda yo'q yuzlar"),
+    kpi("Bugun o'rganildi", t.learned_today, "yangi ko'rinishlar"),
+    kpi("Yuz namunalari", t.face_samples, `${t.auto_samples} tasi avtomatik o'rganilgan`),
+    kpi("Tana namunalari", t.body_samples, `baza hajmi ${t.db_size_mb} MB`),
+  ].join("");
+
+  const d = s.days;
+  barChart($("days"), d.map((x) => x.day), [
+    { values: d.map((x) => x.recognized), color: "var(--s1)" },
+    { values: d.map((x) => x.unknown), color: "var(--s2)" },
+    { values: d.map((x) => x.learned), color: "var(--s3)" }],
+    (i) => `<b>${d[i].day}</b>Tanilgan: ${d[i].recognized}<br>Noma'lum: ${d[i].unknown}<br>O'rganilgan: ${d[i].learned}`);
+  barChart($("hours"), s.hours.map((_, h) => String(h).padStart(2, "0")), [{ values: s.hours, color: "var(--s1)" }],
+    (i) => `<b>${String(i).padStart(2, "0")}:00 – ${String(i).padStart(2, "0")}:59</b>${s.hours[i]} ta tanib olish`);
+
+  const topMax = Math.max(1, ...s.top.map((x) => x.n));
+  $("top").innerHTML = s.top.length ? `<div class="list">${s.top.map((x) => `
+    <div><div class="row" style="justify-content:space-between">${ulink(x.user_id, esc(x.user_name))}<span class="small muted">${x.n} · ${ago(x.last)}</span></div>
+    <div class="bar"><div style="width:${(x.n / topMax) * 100}%"></div></div></div>`).join("")}</div>` : `<div class="muted">Hali ma'lumot yo'q</div>`;
+
+  const vf = s.via.face || 0, vb = s.via.body || 0, vt = vf + vb;
+  $("via").innerHTML = vt ? `<div class="row" style="gap:2px;height:10px;margin-bottom:8px">
+      <div style="flex:${vf};background:var(--s1);height:100%;border-radius:4px"></div><div style="flex:${vb};background:var(--s3);height:100%;border-radius:4px"></div></div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Yuz: ${vf} (${Math.round(vf / vt * 100)}%)</span><span><i style="background:var(--s3)"></i>Tana: ${vb} (${Math.round(vb / vt * 100)}%)</span></div>`
+    : `<div class="muted">Hali ma'lumot yo'q</div>`;
+
+  const isAdmin = (await getMe())?.role === "admin";
+  const ulink = (id, inner, style = "") => isAdmin ? `<a href="/users#${id}" style="${style}">${inner}</a>` : `<span style="${style}">${inner}</span>`;
+  const users = s.users.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+  $("utable").innerHTML = `<tr><th>Foydalanuvchi</th><th class="num">Yuz</th><th class="num">Tana</th><th class="num">Avto</th><th class="num">Ko'rilgan</th><th>Oxirgi marta</th><th>Oxirgi ko'rinishi</th></tr>` +
+    (users.length ? users.map((u) => `<tr><td>${ulink(u.id, `${avatar(u, "avatar")}<span>${esc(u.name)}<div class="small muted">${esc(u.department || "")}</div></span>`, "display:flex;gap:8px;align-items:center")}</td>
+      <td class="num">${u.face_samples}</td><td class="num">${u.body_samples}</td><td class="num">${u.face_auto + u.body_auto}</td>
+      <td class="num">${u.seen_count}</td><td class="small muted">${ago(u.last_seen)}</td><td><div class="chips">${keyChips(u.last_attrs, META)}</div></td></tr>`).join("")
+      : `<tr><td colspan="7" class="muted">Foydalanuvchi yo'q. ${isAdmin ? '<a href="/register">Ro\'yxatdan o\'tkazish →</a>' : ""}</td></tr>`);
+
+  const at = s.attrs_today, items = Object.entries(at.counts).sort((a, b) => b[1] - a[1]);
+  $("attrs").innerHTML = !at.total ? `<div class="muted">Bugun hali hech kim yuz bo'yicha tanilmagan</div>`
+    : items.length ? items.map(([k, n]) => { const pct = Math.round(n / at.total * 100), m = META[k] || { icon: "", label: k };
+        return `<div style="margin-bottom:8px"><div class="row" style="justify-content:space-between"><span>${m.icon} ${esc(m.label)}</span><span class="small muted">${n} marta · ${pct}%</span></div>
+          <div class="bar"><div style="width:${pct}%"></div></div></div>`; }).join("") + `<div class="small muted">${at.total} ta tanib olish ichida</div>`
+    : `<div class="muted">${at.total} ta tanib olishda qo'shimcha narsa aniqlanmadi</div>`;
+
+  await loadEvents();
+  $("upd").textContent = "yangilandi " + fmtTime(Date.now() / 1000);
+}
+async function loadEvents() {
+  const type = $("etype").value;
+  const ev = await api(`/api/events?limit=80${type ? "&types=" + type : ""}`);
+  $("events").innerHTML = ev.length ? ev.map((e) => `<div class="ev"><time>${fmtTime(e.ts)}</time>
+    <span class="badge ${TYPE[e.type]?.[1] || ""}" style="flex:none">${TYPE[e.type]?.[0] || e.type}</span><span>${evText(e)}</span></div>`).join("")
+    : `<div class="muted">Hodisa yo'q</div>`;
+}
+$("etype").onchange = loadEvents;
+attrMeta().then((m) => { META = m; refresh(); }); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

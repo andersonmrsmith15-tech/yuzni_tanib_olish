@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ro'yxatdan o'tkazish</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/common.js"></script>
+</head>
+<body>
+<main>
+  <div class="head"><div><h1>Yangi foydalanuvchini ro'yxatdan o'tkazish</h1>
+    <div class="muted">Ma'lumotlarni kiriting, so'ng kamera orqali turli burchaklardan suratga oling yoki tayyor rasmlarni yuklang.</div></div></div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <div class="row" style="margin-bottom:12px">
+        <button id="mCam" class="primary">Kamera orqali</button>
+        <button id="mUp">Rasmlarni yuklash</button>
+      </div>
+
+      <div id="camPane">
+        <div class="video-wrap"><video id="video" playsinline muted></video><canvas id="overlay"></canvas>
+          <div class="count" id="count"></div>
+          <div class="hint" id="hint">"Suratga olishni boshlash" tugmasini bosing</div></div>
+        <div class="row" style="margin-top:12px">
+          <button id="start" class="primary">Suratga olishni boshlash</button>
+          <button id="retake" class="hidden">Qaytadan</button>
+          <span class="small muted" id="faceState"></span>
+        </div>
+      </div>
+
+      <div id="upPane" class="hidden">
+        <label class="field"><span>Rasmlar (turli xil: old, yon, ko'zoynakli, boshqa yorug'lik, butun bo'y)</span>
+          <input type="file" id="files" accept="image/*" multiple></label>
+        <div class="small muted">Har bir rasmda shu odam eng katta ko'rinishda bo'lishi kerak. Kamida 1 ta yuz ko'rinadigan rasm kerak.</div>
+      </div>
+
+      <h2 style="margin-top:16px">Olingan suratlar <span class="muted" id="nShots">(0)</span></h2>
+      <div class="thumbs" id="shots"></div>
+    </div>
+
+    <div class="grid" style="align-content:start">
+      <div class="card">
+        <h2>Shaxsiy ma'lumotlar</h2>
+        <label class="field"><span>Ism familiya *</span><input type="text" id="name" placeholder="Masalan: Aziz Karimov"></label>
+        <label class="field"><span>Telefon</span><input type="tel" id="phone" placeholder="+998 90 123 45 67"></label>
+        <label class="field"><span>Bo'lim / lavozim</span><input type="text" id="department"></label>
+        <label class="field"><span>Izoh</span><textarea id="note"></textarea></label>
+        <button id="submit" class="primary" disabled style="width:100%;justify-content:center">Ro'yxatdan o'tkazish</button>
+        <div id="msg"></div>
+      </div>
+      <div class="card" id="stepsCard"><h2>Bosqichlar</h2><div class="steps" id="steps"></div></div>
+    </div>
+  </div>
+</main>
+<script>
+// Har bir bosqichda bir necha kadr olinadi -> tizim odamni turli ko'rinishlarda o'rganadi
+const STEPS = [
+  ["To'g'ri kameraga qarang", 3],
+  ["Boshingizni biroz CHAPGA buring", 2],
+  ["Boshingizni biroz O'NGGA buring", 2],
+  ["Biroz YUQORIGA qarang", 2],
+  ["Biroz PASTGA qarang", 2],
+  ["Jilmaying 🙂", 2],
+  ["Bir-ikki qadam orqaga turing — tanangiz ko'rinsin", 3],
+];
+const $ = (id) => document.getElementById(id);
+const video = $("video"), overlay = $("overlay");
+let mode = "cam", shots = [], stream = null, capturing = false, previewOn = false;
+
+$("steps").innerHTML = STEPS.map(([t], i) => `<div class="step" data-i="${i}"><span class="n">${i + 1}</span>${t}</div>`).join("");
+const setStep = (i) => document.querySelectorAll(".step").forEach((el, j) =>
+  el.className = "step" + (j < i ? " done" : j === i ? " active" : ""));
+
+$("mCam").onclick = () => setMode("cam");
+$("mUp").onclick = () => setMode("upload");
+function setMode(m) {
+  mode = m; shots = []; renderShots();
+  $("mCam").className = m === "cam" ? "primary" : ""; $("mUp").className = m === "upload" ? "primary" : "";
+  $("camPane").classList.toggle("hidden", m !== "cam"); $("upPane").classList.toggle("hidden", m !== "upload");
+  $("stepsCard").classList.toggle("hidden", m !== "cam");
+  if (m === "upload") stopCam();
+}
+
+async function ensureCam() {
+  if (stream) return;
+  stream = await startCamera(video);
+  previewOn = true; preview();
+}
+function stopCam() { previewOn = false; stream?.getTracks().forEach((t) => t.stop()); stream = null; drawResults(overlay, video, null); }
+
+// Yuz aniqlanayotganini ko'rsatish (o'rganmasdan)
+async function preview() {
+  while (previewOn) {
+    try {
+      const fd = new FormData();
+      fd.append("frame", await grabFrame(video, 640, 0.7), "f.jpg");
+      fd.append("learn", "0"); fd.append("body", "1");
+      const res = await api("/api/recognize", { method: "POST", body: fd });
+      drawResults(overlay, video, res);
+      const n = res.faces.length;
+      $("faceState").innerHTML = n === 0 ? `<span class="badge bad">Yuz ko'rinmayapti</span>`
+        : n > 1 ? `<span class="badge warn">Kadrda ${n} ta yuz — yolg'iz turing</span>`
+        : res.faces[0].name ? `<span class="badge warn">Bu yuz "${esc(res.faces[0].name)}" sifatida tanilyapti</span>`
+        : `<span class="badge ok">Yuz aniqlandi</span>`;
+    } catch { /* ignore */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+$("start").onclick = async () => {
+  if (capturing) return;
+  try { await ensureCam(); } catch (e) { $("hint").textContent = "Kamera ochilmadi: " + e.message; return; }
+  capturing = true; shots = []; renderShots();
+  $("start").disabled = true; $("retake").classList.add("hidden");
+  for (let i = 0; i < STEPS.length; i++) {
+    const [text, n] = STEPS[i];
+    setStep(i); $("hint").classList.remove("hidden"); $("hint").textContent = text;
+    for (let c = 3; c > 0; c--) { $("count").textContent = c; await sleep(i === 0 ? 900 : 650); }
+    $("count").textContent = "";
+    for (let k = 0; k < n; k++) {
+      const blob = await grabFrame(video, 1280, 0.92);
+      shots.push({ blob, url: URL.createObjectURL(blob), step: i });
+      renderShots(); await sleep(350);
+    }
+  }
+  setStep(STEPS.length); $("hint").textContent = "Tayyor! Endi \"Ro'yxatdan o'tkazish\" tugmasini bosing.";
+  capturing = false; $("start").disabled = false; $("start").textContent = "Yana suratga olish"; $("retake").classList.remove("hidden");
+};
+$("retake").onclick = () => { shots = []; renderShots(); setStep(-1); };
+
+$("files").onchange = (e) => {
+  shots = [...e.target.files].map((f) => ({ blob: f, url: URL.createObjectURL(f) })); renderShots();
+};
+
+function renderShots() {
+  $("nShots").textContent = `(${shots.length})`;
+  $("shots").innerHTML = shots.map((s, i) => `<div class="thumb"><img src="${s.url}"><button class="x" data-i="${i}">✕</button></div>`).join("");
+  $("shots").querySelectorAll(".x").forEach((b) => b.onclick = () => { shots.splice(+b.dataset.i, 1); renderShots(); });
+  validate();
+}
+function validate() { $("submit").disabled = capturing || !shots.length || !$("name").value.trim(); }
+$("name").oninput = validate;
+
+async function submit(force = false) {
+  const fd = new FormData();
+  for (const k of ["name", "phone", "department", "note"]) fd.append(k, $(k).value);
+  fd.append("source", mode === "upload" ? "upload" : "register");
+  if (force) fd.append("force", "1");
+  shots.forEach((s, i) => fd.append("images", s.blob, `img${i}.jpg`));
+  $("submit").disabled = true; $("msg").innerHTML = `<div class="alert warn">Qayta ishlanmoqda...</div>`;
+  try {
+    const res = await api("/api/users", { method: "POST", body: fd });
+    if (res.ok) {
+      const st = res.stats;
+      $("msg").innerHTML = `<div class="alert ok"><b>${esc(res.user.name)}</b> ro'yxatdan o'tdi: ${st.face_added} ta yuz, ${st.body_added} ta tana namunasi saqlandi.
+        ${st.warnings.length ? `<div class="small">${st.warnings.map(esc).join("<br>")}</div>` : ""}
+        <div style="margin-top:6px"><a href="/">Kamerada tekshirish →</a> · <a href="/users">Foydalanuvchilar →</a></div></div>`;
+      shots = []; renderShots(); setStep(-1);
+      for (const k of ["name", "phone", "department", "note"]) $(k).value = "";
+      $("files").value = "";
+    } else if (res.duplicate) {
+      $("msg").innerHTML = `<div class="alert warn">${esc(res.error)}<div class="row" style="margin-top:8px">
+        <button id="force">Baribir yangi foydalanuvchi sifatida qo'shish</button>
+        <a class="btn" href="/users#${res.duplicate.id}">Mavjudini ochish</a></div></div>`;
+      $("force").onclick = () => submit(true);
+    } else {
+      $("msg").innerHTML = `<div class="alert bad">${esc(res.error)}</div>`;
+    }
+  } catch (e) { $("msg").innerHTML = `<div class="alert bad">Xato: ${esc(e.message)}</div>`; }
+  validate();
+}
+$("submit").onclick = () => submit(false);
+</script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kamera — Tanib olish</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/common.js"></script>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div><h1>Jonli tanib olish</h1><div class="muted">Kamera orqali yuz va tanani aniqlaydi, tanilgan odamning yangi ko'rinishlarini avtomatik o'rganadi.</div></div>
+    <div class="row">
+      <label class="toggle" data-role="admin"><input type="checkbox" id="learn" checked> Avto-o'rganish</label>
+      <label class="toggle" data-role="admin"><input type="checkbox" id="diag"> Diagnostika</label>
+      <label class="toggle"><input type="checkbox" id="body" checked> Tanani aniqlash</label>
+      <label class="toggle"><input type="checkbox" id="attrs" checked> Atributlar (ko'zoynak, kepka, soqol...)</label>
+      <button id="toggle" class="primary">Kamerani yoqish</button>
+    </div>
+  </div>
+  <div class="grid cols-2">
+    <div>
+      <div class="video-wrap"><video id="video" playsinline muted></video><canvas id="overlay"></canvas>
+        <div class="hint" id="hint">"Kamerani yoqish" tugmasini bosing</div></div>
+      <div class="row small muted" style="margin-top:8px">
+        <span id="perf">—</span>
+        <span class="badge ok">Yashil: tanildi</span><span class="badge warn">Sariq: yangi ko'rinish o'rganildi</span>
+        <span class="badge bad">Qizil: noma'lum</span><span class="badge" style="color:var(--body)">Binafsha: tana</span>
+      </div>
+    </div>
+    <div class="grid" style="align-content:start">
+      <div class="card"><h2>Kadrda</h2><div class="list" id="present"><div class="muted">Hech kim yo'q</div></div></div>
+      <div class="card"><h2>O'rganish jurnali</h2><div class="feed" id="feed"><div class="muted">Hozircha yo'q</div></div></div>
+    </div>
+  </div>
+</main>
+<script>
+const video = document.getElementById("video"), overlay = document.getElementById("overlay");
+const hint = document.getElementById("hint"), btn = document.getElementById("toggle");
+let stream = null, running = false, last = null;
+
+btn.onclick = async () => {
+  if (running) { stop(); return; }
+  try {
+    stream = await startCamera(video);
+    running = true; btn.textContent = "To'xtatish"; hint.classList.add("hidden");
+    loop();
+  } catch (e) { hint.textContent = "Kamera ochilmadi: " + e.message; }
+};
+function stop() {
+  running = false; btn.textContent = "Kamerani yoqish";
+  stream?.getTracks().forEach((t) => t.stop());
+  drawResults(overlay, video, null); hint.classList.remove("hidden"); hint.textContent = "Kamera o'chirilgan";
+}
+
+async function loop() {
+  while (running) {
+    const t0 = performance.now();
+    try {
+      const fd = new FormData();
+      fd.append("frame", await grabFrame(video, 960), "frame.jpg");
+      fd.append("learn", document.getElementById("learn")?.checked === false ? "0" : "1");
+      fd.append("body", document.getElementById("body").checked ? "1" : "0");
+      fd.append("attrs", document.getElementById("attrs").checked ? "1" : "0");
+      const res = await api("/api/recognize", { method: "POST", body: fd });
+      last = res; drawResults(overlay, video, res); renderSide(res);
+      document.getElementById("perf").textContent = `Server: ${res.ms} ms · ${(1000 / (performance.now() - t0)).toFixed(1)} kadr/s`;
+    } catch (e) {
+      document.getElementById("perf").textContent = "Xato: " + e.message;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+window.addEventListener("resize", () => last && drawResults(overlay, video, last));
+
+let THR = {};
+api("/api/settings").then((s) => { THR = Object.fromEntries(s.attrs.map((a) => [a.key, a])); }).catch(() => {});
+// Admin uchun: har bir atributning xom ehtimoli va chegarasi (chegarani to'g'rilashda yordam beradi)
+function diagBars(all) {
+  return `<div class="small" style="margin-top:6px">${Object.entries(all).map(([k, p]) => {
+    const t = THR[k]?.threshold ?? 0.6, on = p >= t;
+    return `<div class="row" style="gap:6px;flex-wrap:nowrap"><span style="width:120px;flex:none">${THR[k]?.icon || ""} ${esc(THR[k]?.label || k)}</span>
+      <div class="bar" style="flex:1;position:relative"><div style="width:${p * 100}%;background:${on ? "var(--ok)" : "var(--muted)"}"></div>
+      <span style="position:absolute;left:${t * 100}%;top:-2px;bottom:-2px;width:2px;background:var(--text)"></span></div>
+      <span style="width:34px;text-align:right">${Math.round(p * 100)}</span></div>`; }).join("")}
+    <div class="muted">Qora chiziq: chegara. <a href="/settings">Sozlamalar →</a></div></div>`;
+}
+
+function renderSide(res) {
+  const people = [];
+  for (const f of res.faces) people.push({ name: f.name, score: f.score, via: "yuz", attrs: f.attrs });
+  for (const b of res.bodies) if (b.via === "body") people.push({ name: b.name, score: b.score, via: "tana" });
+  document.getElementById("present").innerHTML = people.length ? people.map((p) => `
+    <div class="item"><div class="avatar" style="width:48px;height:48px;font-size:18px">${esc(initials(p.name || "?"))}</div>
+      <div style="flex:1;min-width:0"><div class="pname">${esc(p.name || "Noma'lum")}</div><div class="small muted">${p.via} bo'yicha · o'xshashlik ${(p.score * 100).toFixed(0)}%</div>
+        ${p.attrs?.all && document.getElementById("diag")?.checked ? diagBars(p.attrs.all) : ""}
+        ${p.attrs ? `<div class="chips">${attrChips(p.attrs) || '<span class="small muted">qo\'shimcha narsa aniqlanmadi</span>'}</div>` : ""}</div>
+      <span class="badge ${p.name ? (p.via === "tana" ? "acc" : "ok") : "bad"}">${p.name ? (p.via === "tana" ? "taxminiy" : "tanildi") : "noma'lum"}</span></div>`).join("")
+    : `<div class="muted">Hech kim yo'q</div>`;
+  if (res.events?.length) {
+    document.getElementById("feed").innerHTML = res.events.map((e) =>
+      `<div class="ev"><time>${fmtTime(e.ts)}</time><span>${esc(e.text)}</span></div>`).join("");
+  }
+}
+</script>
+</body>
+</html>

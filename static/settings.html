@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sozlamalar</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/common.js"></script>
+<style>
+  .srow { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(120px, 2fr) 56px auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .srow:last-child { border-bottom: 0; }
+  .srow input[type=range] { width: 100%; }
+  .srow output { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+  @media (max-width: 600px) { .srow { grid-template-columns: 1fr 56px; } .srow input[type=range] { grid-column: 1 / -1; grid-row: 2; } }
+</style>
+</head>
+<body>
+<main style="max-width:900px">
+  <div class="head"><div><h1>Sozlamalar</h1><div class="muted">O'zgarishlar bazada saqlanadi va darhol kuchga kiradi.</div></div>
+    <button class="primary" id="save">Saqlash</button></div>
+  <div id="msg"></div>
+
+  <div class="card"><h2>Atributlarni aniqlash chegaralari</h2>
+    <div class="small muted" style="margin-bottom:8px">Ehtimol shu chegaradan yuqori bo'lsa, atribut "bor" deb ko'rsatiladi.
+      Atribut <b>xato chiqsa</b>, chegarani oshiring; <b>aniqlanmasa</b>, pasaytiring. Kamera sahifasidagi
+      <b>Diagnostika</b> belgisi har bir atributning joriy ehtimolini ko'rsatadi.</div>
+    <div id="attrs"></div></div>
+
+  <div class="card" style="margin-top:16px"><h2>Tanib olish</h2><div id="config"></div></div>
+
+  <div class="card" style="margin-top:16px"><h2>Hisoblar</h2>
+    <label class="toggle"><input type="checkbox" id="allow_signup"> Har kim o'zi ro'yxatdan o'ta oladi (Sign up ochiq)</label>
+    <div class="small muted" style="margin-top:4px">O'chirilsa, yangi hisoblarni faqat admin "Hisoblar" sahifasida qo'shadi.</div></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const row = (id, label, val, def, min, max, step) => `<div class="srow"><span>${label}</span>
+  <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}">
+  <output id="${id}_o">${val}</output>
+  <button class="small reset" data-id="${id}" data-def="${def}" title="Standart: ${def}">Standart</button></div>`;
+async function load() {
+  const s = await api("/api/settings");
+  $("attrs").innerHTML = s.attrs_enabled ? s.attrs.map((a) => row("attr_" + a.key, `${a.icon} ${esc(a.label)}`, a.threshold, a.default, 0.3, 0.95, 0.01)).join("")
+    : `<div class="alert warn">CLIP modeli topilmadi, atributlar o'chirilgan. <code>python download_models.py</code> ni ishga tushiring.</div>`;
+  $("config").innerHTML = s.config.map((c) => c.key === "log_interval"
+    ? row("cfg_" + c.key, esc(c.label), c.value, c.default, 5, 300, 5)
+    : row("cfg_" + c.key, esc(c.label), c.value, c.default, 0.2, 0.99, 0.01)).join("");
+  $("allow_signup").checked = s.allow_signup;
+  document.querySelectorAll("input[type=range]").forEach((r) => r.oninput = () => $(r.id + "_o").textContent = r.value);
+  document.querySelectorAll(".reset").forEach((b) => b.onclick = () => { $(b.dataset.id).value = b.dataset.def; $(b.dataset.id + "_o").textContent = b.dataset.def; });
+}
+$("save").onclick = async () => {
+  const attrs = {}, config = {};
+  document.querySelectorAll("input[id^=attr_]").forEach((r) => attrs[r.id.slice(5)] = +r.value);
+  document.querySelectorAll("input[id^=cfg_]").forEach((r) => config[r.id.slice(4)] = +r.value);
+  try {
+    await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attrs, config, allow_signup: $("allow_signup").checked }) });
+    $("msg").innerHTML = `<div class="alert ok">Saqlandi ✓</div>`; load();
+  } catch (e) { $("msg").innerHTML = `<div class="alert bad">${esc(e.message)}</div>`; }
+};
+load();
+</script>
+</body>
+</html>
